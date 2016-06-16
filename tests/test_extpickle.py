@@ -6,14 +6,14 @@ if extpickle.PY3:
 else:
     from StringIO import StringIO
 
-#import better_exchook
-#better_exchook.replace_traceback_format_tb()
+import better_exchook
+better_exchook.replace_traceback_format_tb()
 
 
 def pickle(o):
     f = StringIO()
     pickler = extpickle.Pickler(f)
-    pickler.dump("foo")
+    pickler.dump(o)
     return f.getvalue()
 
 def unpickle(s):
@@ -30,3 +30,8 @@ def check_pickle(o):
 def test_pickle_str():
     check_pickle("foo")
 
+def test_pickle_list():
+    check_pickle([1, 2, "foo", {}])
+
+def test_pickle_dict():
+    check_pickle({1: 2, "foo": "bar", "x": [3, 4], "y": {}})
