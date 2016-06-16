@@ -2,24 +2,59 @@
 import sys
 import types
 from importlib import import_module
+import marshal
 import pickle
+
+PY3 = sys.version_info[0] >= 3
+
+if PY3:
+    def get_func_closure(f): return f.__closure__
+else:
+    def get_func_closure(f): return f.func_closure
 
 
 Unpickler = pickle.Unpickler
-CellType = type((lambda x: lambda: x)(0).func_closure[0])
+_closure = (lambda x: lambda: x)(0)
+# noinspection PyUnresolvedReferences
+_cell = get_func_closure(_closure)[0]
+CellType = type(_cell)
 ModuleType = type(sys)
+# noinspection PyUnresolvedReferences
+DictType = dict if PY3 else types.DictionaryType
+
+
+if PY3:
+    class BufferType: "Dummy"
+    def make_buffer(*args): assert False
+else:
+    # noinspection PyUnresolvedReferences
+    make_buffer = buffer
+    # noinspection PyUnresolvedReferences
+    BufferType = types.BufferType
+
+
+if PY3:
+    _old_style_class = None
+    class OldStyleClass: "Dummy"
+    class _new_style_class: pass
+    NewStyleClass = type
+else:
+    class _old_style_class: pass
+    class _new_style_class(object): pass
+    OldStyleClass = type(_old_style_class)  # == types.ClassType (classobj)
+    NewStyleClass = type(_new_style_class)  # (type)
 
 
 try:
     import numpy
     numpy_ndarray = numpy.ndarray
 except ImportError:
+    numpy = None
     class numpy_ndarray: "Dummy"
 
 
-
 def makeFuncCell(value):
-    return (lambda: value).func_closure[0]
+    return get_func_closure((lambda: value))[0]
 
 
 def getModuleDict(modname):
@@ -57,7 +92,9 @@ def make_numpy_ndarray_fromstring(s, dtype, shape):
     return numpy.fromstring(s, dtype=dtype).reshape(shape)
 
 
-class Pickler(pickle.Pickler):
+_BasePickler = getattr(pickle, "_Pickler", pickle.Pickler)
+
+class Pickler(_BasePickler):
     """
     We extend the standard Pickler to be able to pickle some more types,
     such as lambdas and functions, code, func cells, buffer and more.
@@ -66,8 +103,8 @@ class Pickler(pickle.Pickler):
     def __init__(self, *args, **kwargs):
         if not "protocol" in kwargs:
             kwargs["protocol"] = pickle.HIGHEST_PROTOCOL
-        pickle.Pickler.__init__(self, *args, **kwargs)
-    dispatch = pickle.Pickler.dispatch.copy()
+        _BasePickler.__init__(self, *args, **kwargs)
+    dispatch = _BasePickler.dispatch.copy()
 
     def save_func(self, obj):
         try:
@@ -129,7 +166,7 @@ class Pickler(pickle.Pickler):
             self.memoize(obj)
             return
         self.save_dict(obj)
-    dispatch[types.DictionaryType] = intellisave_dict
+    dispatch[DictType] = intellisave_dict
 
     def save_module(self, obj):
         modname = getModNameForModDict(obj.__dict__)
@@ -144,20 +181,20 @@ class Pickler(pickle.Pickler):
     dispatch[ModuleType] = save_module
 
     def save_buffer(self, obj):
-        self.save(buffer)
+        self.save(make_buffer)
         self.save((str(obj),))
         self.write(pickle.REDUCE)
-    dispatch[types.BufferType] = save_buffer
+    dispatch[BufferType] = save_buffer
 
     def save_ndarray(self, obj):
         # For some reason, Numpy fromstring/tostring is faster than Numpy loads/dumps.
         self.save(make_numpy_ndarray_fromstring)
         self.save((obj.tostring(), str(obj.dtype), obj.shape))
         self.write(pickle.REDUCE)
-    dispatch[numpy.ndarray] = save_ndarray
+    dispatch[numpy_ndarray] = save_ndarray
 
     # Overwrite to avoid the broken pickle.whichmodule() which might return "__main__".
-    def save_global(self, obj, name=None, pack=pickle.struct.pack):
+    def save_global(self, obj, name=None):
         assert obj
         assert id(obj) not in self.memo
         if name is None:
@@ -197,7 +234,7 @@ class Pickler(pickle.Pickler):
         # such as types.FunctionType. This is fixed here.
         for modname in ["types"]:
             moddict = sys.modules[modname].__dict__
-            for modobjname,modobj in moddict.iteritems():
+            for modobjname, modobj in moddict.iteritems():
                 if modobj is obj:
                     self.write(pickle.GLOBAL + modname + '\n' + modobjname + '\n')
                     self.memoize(obj)
@@ -207,7 +244,7 @@ class Pickler(pickle.Pickler):
         self.save((obj.__name__, obj.__bases__, getNormalDict(obj.__dict__)))
         self.write(pickle.REDUCE)
         self.memoize(obj)
-    dispatch[types.TypeType] = save_type
+    dispatch[NewStyleClass] = save_type
 
     # This is about old-style classes.
     def save_class(self, cls):
@@ -220,12 +257,12 @@ class Pickler(pickle.Pickler):
         # It didn't worked. But we can still serialize it.
         # Note that this could potentially confuse the code if the class is reference-able in some other way
         # - then we will end up with two versions of the same class.
-        self.save(types.ClassType)
+        self.save(OldStyleClass)
         self.save((cls.__name__, cls.__bases__, cls.__dict__))
         self.write(pickle.REDUCE)
         self.memoize(cls)
         return
-    dispatch[types.ClassType] = save_class
+    dispatch[OldStyleClass] = save_class
 
     # avoid pickling instances of ourself. this mostly doesn't make sense and leads to trouble.
     # however, also doesn't break. it mostly makes sense to just ignore.
