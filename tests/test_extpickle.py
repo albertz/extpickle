@@ -1,9 +1,10 @@
 
-from nose.tools import assert_equal, assert_is
+from nose.tools import assert_equal, assert_is, assert_is_not
 import extpickle
 if extpickle.PY3:
     from io import BytesIO as StringIO
 else:
+    # noinspection PyUnresolvedReferences
     from StringIO import StringIO
 
 import better_exchook
@@ -81,3 +82,11 @@ def test_pickle_new_style_class():
     assert_equal(
         (cls.__name__, cls.__bases__, cls.x),
         (cls2.__name__, cls2.__bases__, cls2.x))
+
+def test_pickle_func():
+    def f(x):
+        return x + 23
+    assert_equal(f(1), 24)
+    f2 = unpickle(pickle(f))
+    assert_is_not(f, f2)
+    assert_equal(f(2), 25)

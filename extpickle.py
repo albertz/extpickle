@@ -9,8 +9,25 @@ PY3 = sys.version_info[0] >= 3
 
 if PY3:
     def get_func_closure(f): return f.__closure__
+    # (code, globals[, name[, argdefs[, closure]]])
+    def get_func_tuple(f):
+        return (
+            f.__code__,
+            f.__globals__,
+            f.__name__,
+            f.__defaults__,
+            f.__closure__,
+        )
 else:
     def get_func_closure(f): return f.func_closure
+    def get_func_tuple(f):
+        return (
+            f.func_code,
+            f.func_globals,
+            f.func_name,
+            f.func_defaults,
+            f.func_closure,
+        )
 
 
 Unpickler = pickle.Unpickler
@@ -115,13 +132,7 @@ class Pickler(_BasePickler):
             pass
         assert type(obj) is types.FunctionType
         self.save(types.FunctionType)
-        self.save((
-            obj.func_code,
-            obj.func_globals,
-            obj.func_name,
-            obj.func_defaults,
-            obj.func_closure,
-        ))
+        self.save(get_func_tuple(obj))
         self.write(pickle.REDUCE)
         if id(obj) not in self.memo:  # Could be if we recursively landed here. See also pickle.save_tuple().
             self.memoize(obj)
@@ -237,7 +248,7 @@ class Pickler(_BasePickler):
             moddict = sys.modules[modname].__dict__
             for modobjname, modobj in moddict.items():
                 if modobj is obj:
-                    self.write(pickle.GLOBAL + modname + '\n' + modobjname + '\n')
+                    self.write(pickle.GLOBAL + bytes(modname + '\n' + modobjname + '\n', "utf8"))
                     self.memoize(obj)
                     return
         # Generic serialization of new-style classes.
