@@ -31,6 +31,7 @@ else:
     make_buffer = buffer
     # noinspection PyUnresolvedReferences
     BufferType = types.BufferType
+    def bytes(x, *args): return str(x)
 
 
 if PY3:
@@ -221,7 +222,7 @@ class Pickler(_BasePickler):
 
         assert "\n" not in module
         assert "\n" not in name
-        self.write(pickle.GLOBAL + module + '\n' + name + '\n')
+        self.write(pickle.GLOBAL + bytes(module + '\n' + name + '\n', "utf8"))
         self.memoize(obj)
 
     def save_type(self, obj):
@@ -234,7 +235,7 @@ class Pickler(_BasePickler):
         # such as types.FunctionType. This is fixed here.
         for modname in ["types"]:
             moddict = sys.modules[modname].__dict__
-            for modobjname, modobj in moddict.iteritems():
+            for modobjname, modobj in moddict.items():
                 if modobj is obj:
                     self.write(pickle.GLOBAL + modname + '\n' + modobjname + '\n')
                     self.memoize(obj)
