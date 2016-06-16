@@ -1,7 +1,10 @@
 
-import extpickle
-from StringIO import StringIO
 from nose.tools import assert_equal
+import extpickle
+if extpickle.PY3:
+    from io import BytesIO as StringIO
+else:
+    from StringIO import StringIO
 
 #import better_exchook
 #better_exchook.replace_traceback_format_tb()
